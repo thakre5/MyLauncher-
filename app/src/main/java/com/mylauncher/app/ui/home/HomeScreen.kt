@@ -1,8 +1,8 @@
 package com.mylauncher.app.ui.home
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import android.content.Intent
+import android.provider.AlarmClock
+import android.provider.CalendarContract
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,24 +18,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mylauncher.app.ui.LauncherViewModel
+import com.mylauncher.app.services.MediaNotificationListener
 import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
 fun HomeScreen(
-    calendarAgendaText: String = "No upcoming events",
-    mediaTrackTitle: String? = null,
+    viewModel: LauncherViewModel,
     onAddFavoritesClick: () -> Unit = {},
-    onMediaClick: () -> Unit = {},
     onPhoneClick: () -> Unit = {},
     onMessageClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val upcomingEvents by viewModel.upcomingEvents.collectAsState()
+    val notificationSummaries by MediaNotificationListener.notificationSummaries.collectAsState()
+
     // Current date formatter for top header
     val dateFormat = remember { SimpleDateFormat("EEEE, d'th' MMMM", Locale.getDefault()) }
     val currentDateStr = remember { dateFormat.format(Date()) }
+
+    // Pick the next calendar agenda or show fallback text
+    const val defaultAgenda = "No upcoming events"
+    val nextEvent = upcomingEvents.firstOrNull()
+    val agendaText = if (nextEvent != null) {
+        "${nextEvent.title} • ${nextEvent.timeString}"
+    } else {
+        defaultAgenda
+    }
+
+    // Active media track info if available
+    val activeMedia = notificationSummaries.values.firstOrNull()
+    val mediaText = activeMedia?.let { "${it.title} - ${it.artist}" } ?: "Smart Media / Audio"
 
     Box(
         modifier = Modifier
@@ -54,7 +72,18 @@ fun HomeScreen(
                 text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()),
                 color = Color.White,
                 fontSize = 56.sp,
-                fontWeight = FontWeight.Light
+                fontWeight = FontWeight.Light,
+                modifier = Modifier.clickable {
+                    // Open system clock/alarm on clock tap
+                    try {
+                        val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -69,7 +98,15 @@ fun HomeScreen(
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = Color.DarkGray.copy(alpha = 0.4f),
-                modifier = Modifier.wrapContentWidth()
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .clickable {
+                        if (nextEvent != null) {
+                            viewModel.openCalendarEvent(context, nextEvent.id)
+                        } else {
+                            viewModel.launchCalendarNewEvent(context)
+                        }
+                    }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -83,7 +120,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = calendarAgendaText,
+                        text = agendaText,
                         color = Color.White.copy(alpha = 0.9f),
                         fontSize = 13.sp
                     )
@@ -166,7 +203,13 @@ fun HomeScreen(
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp)
-                    .clickable { onMediaClick() }
+                    .clickable {
+                        // Open active media app or fallback to audio settings
+                        activeMedia?.packageName?.let { pkg ->
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)
+                            if (launchIntent != null) context.startActivity(launchIntent)
+                        }
+                    }
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -180,7 +223,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = mediaTrackTitle ?: "Smart Media / Audio",
+                        text = mediaText,
                         color = Color.White,
                         fontSize = 13.sp,
                         maxLines = 1,
